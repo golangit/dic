@@ -1,11 +1,7 @@
-dic
-===
+the go dic
+==========
 
-#the golang dependency injection contaner
-
-#### This project is not finished yet (almost started).
-
-### We need a proper Go dependency injection container.
+# Golang Dependency Injection Contaner
 
 To manage the responsibility of dependency creation, each Go application should have a service locator that is responsible for construction and lookup of dependencies.
 
@@ -21,7 +17,12 @@ To remedy this, you could inject to a service only the dependency it needs.
 
 ## Example...
 
-see [example](./example/example.go) folder
+**see** [example](./example/example.go) folder, you could run with 
+
+**run** `go run example/example.go`
+and  `go run example/example_struct.go`
+
+### Registering Services
 
 ``` go
 cnt := container.New()
@@ -31,7 +32,34 @@ cnt.Alias("transport", "transport.sendmail")
 cnt.Register("mailer", MailerNew, reference.New("transport"), "[golangit] ")
 // and then in your code
 cnt.Get("mailer").(Mailer).Send("liuggio")
-```
+``` 
+### Registering Structs and parameters
+
+``` go
+type TestStruct struct {
+	dbName string
+	logger Logger    
+}
+
+cnt := container.New()
+// Storing pareter
+cnt.Register("log.filename", "error.log")
+cnt.Register("db.name", "logger-database")
+// storing service
+cnt.Register("logger", LoggerNew, reference.New("log.filename"))
+cnt.Register("context", &TestStruct{}, reference.New("db.name"), reference.New("logger"))
+
+test := cnt.Get("context").(TestStruct)
+// now struct has .dbName = 'logger-database' and the logger is an object wht the filename injected
+``` 
+
+## API
+
+`Register` stores functions, structs or parameters into the service locator.
+
+`Get` resolves dependencies and return the value.
+
+Everything is injected with lazy injection.
 
 ### Easy multiple env.
 
@@ -40,7 +68,7 @@ cnt := container.New()
 if env == "prod" {
 	cnt.Register("transport.sendmail", SendmailNew /*, lot of arguments*/)
 } else {
-   cnt.Register("transport.stub", echoMailNew)
+   cnt.Register("transport.sendmail", StubMailNew)
 }
 ```
 
@@ -68,14 +96,16 @@ cnt.Register("transport.sendmail", def)
 Not implemented
 
 ``` go
+cnt.Register("mail.prefix", "[golangit] ")
+
 type mailer struct {
-	Sender     MailSender `dic:Mailer type:service`
-	MailPrefix string `dic:mailPrefix type:parameter`
+	Sender     MailSender `dic:transport.sendmail`
+	MailPrefix string     `dic:mail.prefix`
 }
 
-cnt.Map("mailer", mailer)
+mailer := &mailer
+cnt.Map("mailer", mailer) //mailer has now dependencies injected
 ```
-
 
 ## Test
 
@@ -98,15 +128,14 @@ Run all  the bdd tests:
 
 ## Thanks to
 
-@mikespook for bind function
-https://bitbucket.org/mikespook/golib/src/27c65cdf8a772c737c9f4d14c0099bb82ee7fa35/funcmap/funcmap.go?at=default
+[Symfony dependency injection container](http://symfony.com/doc/current/components/dependency_injection)
+
+[Spring service container](http://projects.spring.io/spring-framework)
+
+@mikespook [bind function](https://bitbucket.org/mikespook/golib/src/27c65cdf8a772c737c9f4d14c0099bb82ee7fa35/funcmap/funcmap.go?at=default)
 
 ## ToDo
 
-1. Paramters
-2. tagging
-3. aliasing
-4. Cli for debugging
-5. Setter injection, Property injection
-
-1. Dependency that returns multiples values.
+1. tagging (annotation)
+2. aliasing
+3. Cli for debugging

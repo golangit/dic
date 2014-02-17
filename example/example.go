@@ -7,7 +7,6 @@ import (
 )
 
 // the mailer objects
-
 type Mailer interface {
 	Send(string) bool
 }

@@ -28,36 +28,28 @@ var _ = Describe("Container", func() {
 			"hello":  func() { print("hello") },
 			"foobar": func(a, b, c int) int { return a + b + c },
 		}
-		badProviders = map[string]interface{}{
-			"errstring":  "Can not call this as a function",
-			"errnumeric": 123456789,
-		}
 	)
 
 	Context("When I register a function", func() {
-
 		It("Should not return nil", func() {
 			cnt := New()
 			for k, v := range goodProviders {
 				Expect(cnt.Register(k, v)).Should(BeNil())
 			}
 		})
-
-		PIt("should raise an error if is not a good func", func() {
+		PIt("should understand when there's a Circular reference", func() {
 			cnt := New()
-			for k, v := range badProviders {
-				Expect(cnt.Register(k, v)).ShouldNot(BeNil())
-			}
+			cnt.Register("orm", func(dbName string) string { return "db:" + dbName })
+			Expect(cnt.Get("orm", reference.New("orm"))).Should(BeNil())
 		})
 	})
 
 	Context("When I try to get a definition", func() {
 		It("should return nil if the service doesn't exist", func() {
 			cnt := New()
-			def := cnt.GetDefinition("hello")
+			def, _ := cnt.GetDefinition("hello")
 			Expect(def).Should(BeNil())
 		})
-
 		It("should return a definition", func() {
 			def := definition.New(fmt.Printf, true, true)
 			cnt := New()
@@ -113,7 +105,7 @@ var _ = Describe("Container", func() {
 		})
 	})
 
-	Context("When I try to inject a dependency into a service", func() {
+	Context("When I try to inject a dependency into a callable service", func() {
 		It("should resolve a dependency to another service", func() {
 			cnt := New()
 			cnt.Register("service.4", func() int { return 4 })
@@ -123,6 +115,13 @@ var _ = Describe("Container", func() {
 			Expect(err).Should(BeNil())
 			var i int = val[0].Interface().(int)
 			Expect(i).Should(Equal(8))
+		})
+		It("should resolve a dependency to string", func() {
+			cnt := New()
+			cnt.Register("db.name", "golang")
+			cnt.Register("orm", func(dbName string) string { return "db:" + dbName })
+
+			Expect(cnt.Get("orm", reference.New("db.name"))).Should(Equal("db:golang"))
 		})
 		It("should resolve a mixed type dependencies", func() {
 			cnt := New()
@@ -164,14 +163,56 @@ var _ = Describe("Container", func() {
 		})
 	})
 
-	PContext("When I try to store parameters", func() {
+	Context("When I try to Register an objects with fields", func() {
+		Context("Using a struct", func() {
+			It("should register correctly", func() {
+				type TestStruct struct {
+					Nerd string
+				}
+				test := &TestStruct{}
+				cnt := New()
+				err := cnt.Register("root", test)
+				Expect(err).Should(BeNil())
+			})
 
+			It("should register it and inject its fields", func() {
+				type TestStruct struct {
+					Nerd string
+				}
+				test := &TestStruct{}
+				cnt := New()
+				err := cnt.Register("struct", test, "liuggio")
+				Expect(err).Should(BeNil())
+
+				res, err := cnt.GetAll("struct")
+				Expect(res).ShouldNot(BeNil())
+				Expect(err).Should(BeNil())
+				Expect(res[0].Interface().(TestStruct).Nerd).Should(Equal("liuggio"))
+			})
+		})
 	})
 
-	PContext("when I try to get a service", func() {
-		PContext("when I have services and parameter into the arguments", func() {
-			PIt("should resolve the dependencies and parameters then call the func Call", func() {
-			})
+	Context("When I register a parameters", func() {
+		It("should register it", func() {
+			db := "golang"
+			cnt := New()
+			err := cnt.Register("database.name", db)
+			Expect(err).Should(BeNil())
+		})
+		It("should register, and get it", func() {
+			db := "golang"
+			cnt := New()
+			err := cnt.Register("database.name", db)
+			Expect(err).Should(BeNil())
+			res, err := cnt.GetAll("database.name")
+			Expect(res).ShouldNot(BeNil())
+			Expect(err).Should(BeNil())
+			Expect(res[0].Interface().(string)).Should(Equal("golang"))
+		})
+	})
+
+	PContext("When I register a struct", func() {
+		PIt("should inject by tagging", func() {
 		})
 	})
 })

@@ -13,9 +13,18 @@ func TestDic(t *testing.T) {
 }
 
 var _ = Describe("Definition/Definition", func() {
-	It("can be created by calling New", func() {
+	It("can be created by calling New by passing a callable function", func() {
 
 		def := New(Describe, true, true, "arg1")
+		Expect(def).ShouldNot(BeNil())
+	})
+
+	It("can be created by calling New by passing a struct", func() {
+		type TestStruct struct {
+			Nerd string
+		}
+		test := &TestStruct{}
+		def := New(test, true, true, "liuggio")
 		Expect(def).ShouldNot(BeNil())
 	})
 
@@ -23,15 +32,15 @@ var _ = Describe("Definition/Definition", func() {
 
 		def := New(Describe, true, true)
 		Expect(def).ShouldNot(BeNil())
-		Expect(def.Get().Args).Should(HaveLen(0))
+		Expect(def.GetArgs()).Should(HaveLen(0))
 	})
 
 	It("should be able to replace functions args", func() {
 
 		def := New(Describe, true, true, "arg1")
 		Expect(def).ShouldNot(BeNil())
-		Expect(def.Get().Args).Should(HaveLen(1))
+		Expect(def.GetArgs()).Should(HaveLen(1))
 		def.ReplaceArgs("arg1", "arg2")
-		Expect(def.Get().Args).Should(HaveLen(2))
+		Expect(def.GetArgs()).Should(HaveLen(2))
 	})
 })

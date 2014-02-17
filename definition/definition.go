@@ -4,21 +4,25 @@ import (
 	"reflect"
 )
 
-const (
-	SERVICE_STATIC  = true
-	SERVICE_PUBLIC  = true
-	SERVICE_PRIVATE = false
-)
-
 type definition struct {
-	Value  reflect.Value
-	Args   []reflect.Value
-	Public bool
-	Static bool
+	value  reflect.Value
+	args   []reflect.Value
+	public bool
+	static bool
+	kind   Kind
 }
 
 type Definition interface {
 	DefinitionWriter
+	DefinitionReader
+}
+
+type DefinitionReader interface {
+	GetValue() reflect.Value
+	GetArgs() []reflect.Value
+	IsPublic() bool
+	IsStatic() bool
+	GetKind() Kind
 }
 
 type DefinitionWriter interface {
@@ -29,9 +33,11 @@ type DefinitionWriter interface {
 }
 
 func New(fn interface{}, pub bool, stat bool, params ...interface{}) Definition {
-	// todo change error
+
 	v := reflect.ValueOf(fn)
-	//v.Type().NumIn() // panic if is not callable
+	for v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
 
 	var in = make([]reflect.Value, len(params))
 	for k, param := range params {
@@ -39,10 +45,11 @@ func New(fn interface{}, pub bool, stat bool, params ...interface{}) Definition 
 	}
 
 	return &definition{
-		Value:  v,
-		Args:   in,
-		Public: pub,
-		Static: stat,
+		value:  v,
+		args:   in,
+		public: pub,
+		static: stat,
+		kind:   GetCorrectKind(v.Kind()),
 	}
 }
 
@@ -53,27 +60,40 @@ func (d *definition) ReplaceArgs(params ...interface{}) Definition {
 	for k, param := range params {
 		in[k] = reflect.ValueOf(param)
 	}
-
-	d.Args = in
-
+	d.args = in
 	return d
 }
 
 func (d *definition) SetStatic(isStatic bool) Definition {
-
-	d.Static = isStatic
-
+	d.static = isStatic
 	return d
 }
 
 func (d *definition) SetPublic(isPublic bool) Definition {
-
-	d.Public = isPublic
-
+	d.public = isPublic
 	return d
 }
 
 func (d *definition) Get() *definition {
-
 	return d
+}
+
+func (d *definition) GetValue() reflect.Value {
+	return d.value
+}
+
+func (d *definition) GetArgs() []reflect.Value {
+	return d.args
+}
+
+func (d *definition) IsStatic() bool {
+	return d.static
+}
+
+func (d *definition) IsPublic() bool {
+	return d.public
+}
+
+func (d *definition) GetKind() Kind {
+	return d.kind
 }

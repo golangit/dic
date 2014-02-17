@@ -16,6 +16,9 @@ var (
 	ErrServiceNotFound       = func(service string) error { return errors.New("Service " + service + " not found") }
 	ErrServiceNotPublic      = func(service string) error { return errors.New("Service " + service + " is not public") }
 	ErrObjectIsNotAReference = errors.New("Object is not a Resource type")
+	ErrKindIsNotValid        = func(kind definition.Kind) error {
+		return errors.New("Kind " + string(kind) + " is not a valid kind")
+	}
 )
 
 type container struct {
@@ -26,18 +29,21 @@ type container struct {
 type Container interface {
 	ContainerReader
 	ContainerWriter
+	ContainerCaller
 }
 
 type ContainerReader interface {
-	GetDefinition(string) definition.Definition
-	Call(string, []reflect.Value) ([]reflect.Value, error)
+	GetDefinition(string) (definition.Definition, error)
 }
 
 type ContainerWriter interface {
 	Register(string, interface{}, ...interface{}) error
+	SetDefinition(string, definition.Definition) error
+}
+
+type ContainerCaller interface {
 	GetAll(string, ...interface{}) ([]reflect.Value, error)
 	Get(string, ...interface{}) interface{}
-	SetDefinition(string, definition.Definition) error
 }
 
 func New() Container {
@@ -58,41 +64,77 @@ func (cnt *container) SetDefinition(name string, definition definition.Definitio
 	return
 }
 
-func (cnt *container) GetDefinition(name string) definition.Definition {
+func (cnt *container) GetDefinition(name string) (def definition.Definition, err error) {
 
-	return cnt.definitions[name]
+	if _, ok := cnt.definitions[name]; !ok {
+		return nil, ErrServiceNotFound(name)
+	}
+
+	return cnt.definitions[name], nil
+}
+
+// Get the service, and return only the first result's interface
+func (cnt *container) Get(name string, params ...interface{}) interface{} {
+
+	results, _ := cnt.GetAll(name, params...)
+
+	if len(results) < 1 {
+		return nil
+	}
+
+	return results[0].Interface()
 }
 
 // Get a service by its name
 // it resolves also the dependencies
 // if the service is defined as static it instanciate the object once
-func (cnt *container) GetAll(name string, params ...interface{}) (result []reflect.Value, err error) {
+func (cnt *container) GetAll(name string, params ...interface{}) ([]reflect.Value, error) {
 
-	if _, ok := cnt.definitions[name]; !ok {
-		err = ErrServiceNotFound(name)
-		return
+	def, err := cnt.GetDefinition(name)
+	if err != nil {
+		return nil, err
 	}
 
-	if !cnt.definitions[name].Get().Public {
-		err = ErrServiceNotPublic(name)
-		return
+	if !def.IsPublic() {
+		return nil, ErrServiceNotPublic(name)
 	}
 
+	return cnt.doGetAll(name, params...)
+}
+
+// call the correct function by its type
+func (cnt *container) doGetAll(name string, params ...interface{}) (result []reflect.Value, err error) {
+
+	def, err := cnt.GetDefinition(name)
+	if err != nil {
+		return
+	}
 	// cache hit:
 	// -if was already stored
 	// -and there are no paramters
 	// -and the call is static get the already stored value
-	if _, ok := cnt.services[name]; ok && len(params) == 0 && cnt.definitions[name].Get().Static {
+	if _, ok := cnt.services[name]; ok && len(params) == 0 && def.IsStatic() {
 		result = cnt.services[name]
 		return
 	}
 
 	if len(params) > 0 {
-		cnt.definitions[name].ReplaceArgs(params...)
+		def.ReplaceArgs(params...)
 	}
 
-	dependencies := cnt.resolveDependencies(cnt.definitions[name].Get().Args)
-	result, err = cnt.Call(name, dependencies)
+	dependencies := cnt.resolveDependencies(def.GetArgs())
+
+	switch def.GetKind() {
+	case definition.Callable:
+		result, err = cnt.callAndInjectACallable(def, dependencies)
+	case definition.Fields:
+		result, err = cnt.getAndInjectAllFields(def, dependencies)
+	case definition.Parameter:
+		result = make([]reflect.Value, 1)
+		result[0] = def.GetValue()
+	default:
+		return nil, ErrKindIsNotValid(def.GetKind())
+	}
 
 	// store cache:
 	// -if no param
@@ -103,27 +145,41 @@ func (cnt *container) GetAll(name string, params ...interface{}) (result []refle
 	return
 }
 
-// Get the service, and return only the first argument's interface
-func (cnt *container) Get(name string, params ...interface{}) interface{} {
+// inject all the dependency into the object with fields like struct
+func (cnt *container) getAndInjectAllFields(def definition.Definition, params []reflect.Value) (result []reflect.Value, err error) {
 
-	results, _ := cnt.GetAll(name, params...)
-	return results[0].Interface()
+	v := def.GetValue()
+
+	for v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		if f.CanSet() {
+			f.Set(params[i])
+		}
+	}
+
+	result = make([]reflect.Value, 1)
+	result[0] = v
+	return
 }
 
-func (cnt *container) Call(name string, params []reflect.Value) (result []reflect.Value, err error) {
+func (cnt *container) callAndInjectACallable(def definition.Definition, params []reflect.Value) (result []reflect.Value, err error) {
 
-	if _, ok := cnt.definitions[name]; !ok {
-		err = ErrServiceNotFound(name)
+	// if is a not callable panic here.
+	if len(params) != def.GetValue().Type().NumIn() {
+		err = ErrParamsNotAdapted(len(params), def.GetValue().Type().NumIn())
 		return
 	}
-	if len(params) != cnt.definitions[name].Get().Value.Type().NumIn() {
-		err = ErrParamsNotAdapted(len(params), cnt.definitions[name].Get().Value.Type().NumIn())
-		return
-	}
-
-	result = cnt.definitions[name].Get().Value.Call(params)
-	// todo get the interface value of the first?
+	result = def.GetValue().Call(params)
 	return
+}
+
+func (cnt *container) resolveADependency(name string) reflect.Value {
+	ret, _ := cnt.doGetAll(name)
+	return ret[0]
 }
 
 func (cnt *container) resolveDependencies(params []reflect.Value) []reflect.Value {
@@ -132,8 +188,7 @@ func (cnt *container) resolveDependencies(params []reflect.Value) []reflect.Valu
 
 	for k, param := range params {
 		if reference, err := IsAReference(param); err == nil {
-			ret, _ := cnt.GetAll(reference)
-			deps[k] = ret[0]
+			deps[k] = cnt.resolveADependency(reference)
 		} else {
 			deps[k] = param
 		}
