@@ -44,6 +44,20 @@ var _ = Describe("Container", func() {
 		})
 	})
 
+	Context("When I try to inject all the dependency", func() {
+		It("inject all the dependency for a struct", func() {
+			type Orm struct {
+				DbTable string `dic:"table"`
+			}
+			cnt := New()
+			cnt.Register("table", "table-name")
+			orm := new(Orm)
+			cnt.Inject(&orm)
+
+			Expect(orm.DbTable).Should(Equal("table-name"))
+		})
+	})
+
 	Context("When I try to get a definition", func() {
 		It("should return nil if the service doesn't exist", func() {
 			cnt := New()

@@ -22,16 +22,42 @@ To remedy this, you could inject to a service only the dependency it needs.
 **run** `go run example/example.go`
 and  `go run example/example_struct.go`
 
-### Registering Services
+### Injecting deps on structs
+
+``` go
+type mailer struct {
+	Logger string `dic:"log"`
+	Transport Transport `dic:"transport.sendmail"`
+}
+mailer = new(mailer)
+cnt := container.New()
+
+cnt.Register("output_writer", os.Stdout)
+cnt.Register("log", log.New, reference.New("output_writer"), "", log.Ldate|log.Lmicroseconds|log.Lshortfile)
+cnt.Register("transport.sendmail", SendmailNew /*, lot of arguments*/)
+
+cnt.inject(mailer)
+mailer.Transport.Send()
+mailer.Logger.Println("hello log")
+``` 
+
+### Services
+
+Injection of dependencies into controllers
 
 ``` go
 cnt := container.New()
+cnt.Register("logger", log.New /*, lot of arguments*/)
+cnt.Register("template.path", "template/")
+cnt.Register("template", abcTemplate.new, reference.New("template.path"), reference.New("logger"))
+
 cnt.Register("transport.sendmail", SendmailNew /*, lot of arguments*/)
-cnt.Register("transport.postfix", PostfixNew, "different args than sendmail")
-cnt.Alias("transport", "transport.sendmail")
 cnt.Register("mailer", MailerNew, reference.New("transport"), "[golangit] ")
-// and then in your code
-cnt.Get("mailer").(Mailer).Send("liuggio")
+
+// injecting into controller
+cnt.Register("controller_home", func (logger Logger, mailer Mailer) {/*do something*/}, reference.New("logger"), reference.New("mailer"))
+
+cnt.Register("controller_admin", func (tpl Template, mailer Mailer) {/*do something*/}, reference.New("template"), reference.New("mailer"))
 ``` 
 ### Registering Structs and parameters
 
@@ -58,6 +84,8 @@ test := cnt.Get("context").(TestStruct)
 `Register` stores functions, structs or parameters into the service locator.
 
 `Get` resolves dependencies and return the value.
+
+`Inject` 
 
 Everything is injected with lazy injection.
 
@@ -91,20 +119,19 @@ def := definition.New(SendmailNew).setStatic(false)
 cnt.Register("transport.sendmail", def)
 ```
 
-### *Injecting using tagging (annotation)
-
-Not implemented
+### Injecting using tagging (annotation)
 
 ``` go
 cnt.Register("mail.prefix", "[golangit] ")
 
 type mailer struct {
-	Sender     MailSender `dic:transport.sendmail`
-	MailPrefix string     `dic:mail.prefix`
+	Sender     MailSender `dic:"transport.sendmail"`
+	MailPrefix string     `dic:"mail.prefix"`
 }
 
 mailer := &mailer
-cnt.Map("mailer", mailer) //mailer has now dependencies injected
+cnt.Inject(mailer) //mailer has now dependencies injected
+mailer.Sender.Send()
 ```
 
 ## Test
@@ -136,6 +163,7 @@ Run all  the bdd tests:
 
 ## ToDo
 
-1. tagging (annotation)
-2. aliasing
-3. Cli for debugging
+1. alias
+2. Cli for debugging
+3. godoc
+4. improving injection

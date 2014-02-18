@@ -6,6 +6,17 @@ import (
 	"github.com/golangit/dic/definition"
 	"github.com/golangit/dic/reference"
 	"reflect"
+	"strings"
+)
+
+/*
+@todo
+- has
+- remove
+*/
+
+const (
+	TagPrefix = "dic"
 )
 
 var (
@@ -39,6 +50,7 @@ type ContainerReader interface {
 type ContainerWriter interface {
 	Register(string, interface{}, ...interface{}) error
 	SetDefinition(string, definition.Definition) error
+	Inject(interface{}) error
 }
 
 type ContainerCaller interface {
@@ -51,6 +63,41 @@ func New() Container {
 		definitions: make(map[string]definition.Definition),
 		services:    make(map[string][]reflect.Value),
 	}
+}
+
+func (cnt *container) isFieldTagged(name string) bool {
+	return strings.HasPrefix(name, TagPrefix)
+}
+
+func (cnt *container) getServiceNameByFieldTagged(name string) string {
+	return strings.TrimPrefix(name, TagPrefix)
+}
+
+func (cnt *container) Inject(val interface{}) (err error) {
+
+	v := reflect.ValueOf(val)
+
+	for v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
+	if v.Kind() != reflect.Struct {
+		return nil // Should not panic here ?
+	}
+
+	t := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		tag := t.Field(i).Tag.Get("dic")
+		fmt.Printf("tag [%s], %v", tag, t.Field(i).Tag)
+		if f.CanSet() && len(tag) > 0 {
+			s := cnt.resolveADependency(tag)
+			fmt.Printf("tag %s, %v", tag, s)
+			f.Set(s)
+		}
+	}
+
+	return
 }
 
 func (cnt *container) Register(name string, fn interface{}, params ...interface{}) (err error) {
